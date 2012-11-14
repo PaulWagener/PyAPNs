@@ -338,10 +338,10 @@ class GatewayConnection(APNsConnection):
 
         try: # Connection might have been closed
             self.write(self._get_notification(token_hex, payload, identifier, expiry))
-        except SSLError:
-            # We were disconnected or timeout.
+        except:
             # Prepare to reconnect.
             self._disconnect()
+            raise
         else:
             try:
                 error_response = self.read(6)
