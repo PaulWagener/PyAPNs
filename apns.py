@@ -124,7 +124,6 @@ class APNsConnection(object):
         self._disconnect();
 
     def _connect(self):
-        print 'New connection!'
         # Establish an SSL connection
         self._socket = socket(AF_INET, SOCK_STREAM)
         self._socket.connect((self.server, self.port))
@@ -301,18 +300,18 @@ class InvalidTokenError(APNResponseError):
 
 class Notification(object):
     def __init__(self, token_hex, payload, identifier=0, expiry=None):
-        assert all(c in string.hexdigits for c in token_hex) 
+        assert all(c in string.hexdigits for c in token_hex)
         assert len(token_hex) == 64
 
         self.token_hex = token_hex
         self.payload = payload
         self.identifier = identifier
-        
+
         if expiry is None:
             self.expiry = datetime.now() + timedelta(30)
         else:
             self.expiry = expiry
-            
+
     def get_binary(self):
         """
         Takes a token as a hex string and a payload as a Python dict and sends
@@ -329,13 +328,16 @@ class Notification(object):
             + payload_length_bin + payload_json)
 
         return notification
-        
+
     def __repr__(self):
         return '<%s to %s id:%d>' % (repr(self.payload), self.token_hex, self.identifier)
 
 class GatewayConnection(APNsConnection):
     """
     A class that represents a connection to the APNs gateway server
+
+    This class will guarentee that well-formed notifications will arrive at their destination.
+    Read http://redth.info/the-problem-with-apples-push-notification-ser/ for a detailed description of the problem and the solution, implemented below
     """
     def __init__(self, use_sandbox=False, **kwargs):
         super(GatewayConnection, self).__init__(**kwargs)
@@ -348,13 +350,28 @@ class GatewayConnection(APNsConnection):
         self.in_flight_notifications = []
 
     def flush(self):
+        """
+        Check for all notifications if they were correctly sent.
+        If this method is not called after your batch of notifications there might be notifications that did not arrive at their destination
+        If for example a notification somewhere in the middle of your batch is corrupted (see the response dictionary below for a list of possible problems)
+        it is possible that that notification AND ALL NOTIFICATIONS AFTER IT will be discarded by Apple.
+        """
         while self._check_for_errors(timeout=1):
             pass
-            
-        # If APNs has no error codes left to tell us, we can assume that all in-flight notifications have arrived
+
+        # If the APN server has no error codes left to tell us we can assume that all in-flight notifications have arrived
         self.in_flight_notifications = []
 
     def _check_for_errors(self, timeout=0):
+        """
+        Try to read error codes from the APNS gateway server.
+
+        This tells us which notification failed,
+        which succeeded (all notifications sent before the failed notification) 
+        and which need to be resent (all notifications sent after the failed notification)
+
+        Will return a boolean that indicates if it sent out new notifications.
+        """
         resended_notifications = False
         try:
             error_response = self.read(6, timeout=timeout)
@@ -369,8 +386,10 @@ class GatewayConnection(APNsConnection):
                 if status > 0:
                     self._disconnect() # Make sure we're ready for next send.
 
-
                 in_flight = self.in_flight_notifications
+
+                # Every notification in in_flight will either succeeded, fail or be marked for resending
+                # We can start afresh with the list of in flight notifications
                 self.in_flight_notifications = []
 
                 needs_resending = []
@@ -399,41 +418,35 @@ class GatewayConnection(APNsConnection):
 
                             self.failed_notifications.append(notification)
                     else:
-                        # This notification was sent *after* the problematic notification
-                        # We can assume that it was not sent.
-                        # Unless offcourse it was not problematic at all and Apple sends an "Error" that no errors were encountered (status code 0)
-                        # In that case we still don't know the fate of the notification and have to put it back in flight
                         if status > 0:
+                            # This notification was sent *after* the problematic notification
+                            # We can assume that it was not sent and needs to be resent.
                             needs_resending.append(notification)
                         else:
+                            # Unless offcourse it was not problematic at all and Apple sends an "Error" that no errors were encountered (status code 0)
+                            # In that case we still don't know the fate of the notification and have to put it back in-flight
                             self.in_flight_notifications.append(notification)
-                
-                # 
-                self.in_flight_notifications = []
-                
+
                 for notification in needs_resending:
                     self.send(notification)
                     resended_notifications = True
-                
-                        
+
         except (SSLError, timeout), ex:
              # SSL throws SSLError instead of timeout, see http://bugs.python.org/issue10272
             pass # Timeouts are OK - don't reconnect
-            
+
         return resended_notifications
 
     def send_notification(self, token_hex, payload, expiry=None):
         self.send(Notification(token_hex, payload, expiry))
-        
-    def send(self, notification):
 
+    def send(self, notification):
         notification.identifier = self.next_identifier
         self.next_identifier += 1
 
         try: # Connection might have been closed
             self.write(notification.get_binary())
             self.in_flight_notifications.append(notification)
-            print 'Sent', notification.identifier
         except:
             # Prepare to reconnect.
             self._disconnect()
