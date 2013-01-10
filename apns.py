@@ -271,33 +271,6 @@ class FeedbackConnection(APNsConnection):
                     # some more data and append to buffer
                     break
 
-class APNResponseError(Exception):
-    pass
-
-class UnknownResponse(APNResponseError):
-    def __init__(self):
-        super(UnknownResponse, self).__init__()
-
-class UnknownError(APNResponseError):
-    def __init__(self):
-        super(UnknownError, self).__init__()
-
-class ProcessingError(APNResponseError):
-    def __init__(self):
-        super(ProcessingError, self).__init__()
-
-class InvalidTokenSizeError(APNResponseError):
-    def __init__(self):
-        super(InvalidTokenSizeError, self).__init__()
-
-class InvalidPayloadSizeError(APNResponseError):
-    def __init__(self):
-        super(InvalidPayloadSizeError, self).__init__()
-
-class InvalidTokenError(APNResponseError):
-    def __init__(self):
-        super(InvalidTokenError, self).__init__()
-
 class Notification(object):
     def __init__(self, token_hex, payload, identifier=0, expiry=None):
         assert all(c in string.hexdigits for c in token_hex)
@@ -367,7 +340,7 @@ class GatewayConnection(APNsConnection):
         Try to read error codes from the APNS gateway server.
 
         This tells us which notification failed,
-        which succeeded (all notifications sent before the failed notification) 
+        which succeeded (all notifications sent before the failed notification)
         and which need to be resent (all notifications sent after the failed notification)
 
         Will return a boolean that indicates if it sent out new notifications.

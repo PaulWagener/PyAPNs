@@ -45,7 +45,7 @@ class MockGatewayConnection(GatewayConnection):
 
     def write(self, string):
         self.written += string
-    
+
 class TestAPNs(unittest.TestCase):
     """Unit tests for PyAPNs"""
 
@@ -224,26 +224,25 @@ class TestAPNs(unittest.TestCase):
         apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
 
         self.assertEqual(len(apns.gateway_server.failed_notifications), 1)
-        
+
         failed_notification = apns.gateway_server.failed_notifications[0]
         self.assertEqual(failed_notification.payload.alert, u"Fail Message")
         self.assertEqual(failed_notification.fail_reason, (8, 'Invalid token'))
-        
+
         # Send three notifications. Where none fail, but APNs returns a 'No error encountered' message
         apns._gateway_connection = MockGatewayConnection()
 
         apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
         apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
         apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
-        
+
         apns.gateway_server.return_on_read = '\x08\x00\x00\x00\x00\x01' # Simulate that identifier 1 did not encounter an error
         apns.gateway_server.flush()
 
         self.assertEqual(len(apns.gateway_server.failed_notifications), 0)
 
-
     def testPayloadTooLargeError(self):
-        # The maximum size of the JSON payload is MAX_PAYLOAD_LENGTH 
+        # The maximum size of the JSON payload is MAX_PAYLOAD_LENGTH
         # bytes. First determine how many bytes this allows us in the
         # raw payload (i.e. before JSON serialisation)
         json_overhead_bytes = len(Payload('.').json()) - 1
@@ -251,7 +250,7 @@ class TestAPNs(unittest.TestCase):
 
         # Test ascii characters payload
         Payload('.' * max_raw_payload_bytes)
-        self.assertRaises(PayloadTooLargeError, Payload, 
+        self.assertRaises(PayloadTooLargeError, Payload,
             '.' * (max_raw_payload_bytes + 1))
 
         # Test unicode 2-byte characters payload
