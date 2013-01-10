@@ -26,11 +26,10 @@
 from binascii import a2b_hex, b2a_hex
 from datetime import datetime, timedelta
 from time import mktime
-from random import getrandbits
 from socket import socket, AF_INET, SOCK_STREAM, timeout
 from struct import pack, unpack
 
-import os, traceback
+import os, collections
 
 try:
     from ssl import wrap_socket
@@ -125,6 +124,7 @@ class APNsConnection(object):
         self._disconnect();
 
     def _connect(self):
+        print 'New connection!'
         # Establish an SSL connection
         self._socket = socket(AF_INET, SOCK_STREAM)
         self._socket.connect((self.server, self.port))
@@ -299,6 +299,34 @@ class InvalidTokenError(APNResponseError):
     def __init__(self):
         super(InvalidTokenError, self).__init__()
 
+class Notification(object):
+    def __init__(self, token_hex, payload, identifier, expiry=None):
+        self.token_hex = token_hex
+        self.payload = payload
+        self.identifier = identifier
+        
+        if expiry is None:
+            self.expiry = datetime.now() + timedelta(30)
+        else:
+            self.expiry = expiry
+            
+    def get_binary(self):
+        """
+        Takes a token as a hex string and a payload as a Python dict and sends
+        the notification
+        """
+        identifier_bin = pack('>I', self.identifier)
+        expiry_bin = APNs.packed_uint_big_endian(int(mktime(self.expiry.timetuple())))
+        token_bin = a2b_hex(self.token_hex)
+        token_length_bin = APNs.packed_ushort_big_endian(len(token_bin))
+        payload_json = self.payload.json()
+        payload_length_bin = APNs.packed_ushort_big_endian(len(payload_json))
+
+        notification = ('\x01' + identifier_bin + expiry_bin + token_length_bin + token_bin
+            + payload_length_bin + payload_json)
+
+        return notification        
+
 class GatewayConnection(APNsConnection):
     """
     A class that represents a connection to the APNs gateway server
@@ -309,26 +337,12 @@ class GatewayConnection(APNsConnection):
             'gateway.push.apple.com',
             'gateway.sandbox.push.apple.com')[use_sandbox]
         self.port = 2195
+        self.next_identifier = 0
+        self.failed_notifications = []
+        self.in_flight_notifications = collections.deque()
         
     def __del__(self):
-        self._check_for_errors(timeout=1000)
-
-    def _get_notification(self, token_hex, payload, identifier, expiry):
-        """
-        Takes a token as a hex string and a payload as a Python dict and sends
-        the notification
-        """
-        identifier_bin = identifier[:4]
-        expiry_bin = APNs.packed_uint_big_endian(int(mktime(expiry.timetuple())))
-        token_bin = a2b_hex(token_hex)
-        token_length_bin = APNs.packed_ushort_big_endian(len(token_bin))
-        payload_json = payload.json()
-        payload_length_bin = APNs.packed_ushort_big_endian(len(payload_json))
-
-        notification = ('\x01' + identifier_bin + expiry_bin + token_length_bin + token_bin
-            + payload_length_bin + payload_json)
-
-        return notification
+        self._check_for_errors(timeout=1)
 
     def _check_for_errors(self, timeout=0):
         try:
@@ -336,33 +350,40 @@ class GatewayConnection(APNsConnection):
             if error_response != '':
                 command = error_response[0]
                 status = ord(error_response[1])
-                response_identifier = error_response[2:6]
-                
+                identifier, = unpack('>I', error_response[2:6])
+
                 if command != '\x08':
                     raise UnknownResponse()
-                
-                if status == 0:
-                    return
-                
-                raise {1: ProcessingError,
-                       5: InvalidTokenSizeError,
-                       7: InvalidPayloadSizeError,
-                       8: InvalidTokenError}.get(status, UnknownError)()
+
+                if status > 0:
+                    self._disconnect() # Make sure we're ready for next send.
+
+                response = {
+                    0: 'No errors encountered',
+                    1: 'Processing error',
+                    2: 'Missing device token',
+                    3: 'Missing topic',
+                    4: 'Missing payload',
+                    5: 'Invalid token size',
+                    6: 'Invalid topic size',
+                    7: 'Invalid payload size',
+                    8: 'Invalid token'}.get(status, 'Unknown Error')
+                print 'There was an error for identifier ' + str(identifier) + ': ' + response
         except (SSLError, timeout), ex:
              # SSL throws SSLError instead of timeout, see http://bugs.python.org/issue10272
             pass # Timeouts are OK - don't reconnect
-        except APNResponseError, error:
-            print type(error)
-            self._disconnect() # Make sure we're ready for next send.
 
     def send_notification(self, token_hex, payload, expiry=None):
-        if expiry is None:
-            expiry = datetime.now() + timedelta(30)
+        self.send(Notification(token_hex, payload, expiry))
         
-        identifier = pack('>I', getrandbits(32))
+    def send(self, notification):
+
+        notification.identifier = self.next_identifier
+        self.next_identifier += 1
 
         try: # Connection might have been closed
-            self.write(self._get_notification(token_hex, payload, identifier, expiry))
+            self.write(notification.get_binary())
+            print 'Sent', notification.identifier
         except:
             # Prepare to reconnect.
             self._disconnect()
