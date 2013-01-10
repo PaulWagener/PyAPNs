@@ -45,8 +45,6 @@ except ImportError:
 
 MAX_PAYLOAD_LENGTH = 256
 
-TIMEOUT = float(os.environ.get('APNS_TIMEOUT', 0.5))
-
 class APNs(object):
     """A class representing an Apple Push Notification service connection"""
 
@@ -116,13 +114,12 @@ class APNsConnection(object):
     """
     A generic connection class for communicating with the APNs
     """
-    def __init__(self, cert_file=None, key_file=None, timeout=TIMEOUT):
+    def __init__(self, cert_file=None, key_file=None):
         super(APNsConnection, self).__init__()
         self.cert_file = cert_file
         self.key_file = key_file
         self._socket = None
         self._ssl = None
-        self.timeout = timeout
 
     def __del__(self):
         self._disconnect();
@@ -131,8 +128,8 @@ class APNsConnection(object):
         # Establish an SSL connection
         self._socket = socket(AF_INET, SOCK_STREAM)
         self._socket.connect((self.server, self.port))
-        self._socket.settimeout(self.timeout)
         self._ssl = wrap_socket(self._socket, self.key_file, self.cert_file)
+        self._ssl.settimeout(0)
 
     def _disconnect(self):
         if self._socket:
