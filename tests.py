@@ -78,9 +78,9 @@ class TestAPNs(unittest.TestCase):
             sound = "default",
             badge = 4
         )
-        identifier = 'abcd'
+        identifier = 0
         expiry = datetime(2000, 01, 01, 00, 00, 00)
-        notification = gateway_server._get_notification(token_hex, payload, identifier, expiry)
+        notification = Notification(token_hex, payload, identifier, expiry).get_binary()
 
         expected_length = (
             1                       # leading command byte

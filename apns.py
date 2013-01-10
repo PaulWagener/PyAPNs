@@ -29,7 +29,7 @@ from time import mktime
 from socket import socket, AF_INET, SOCK_STREAM, timeout
 from struct import pack, unpack
 
-import os, collections
+import os
 
 try:
     from ssl import wrap_socket
@@ -325,7 +325,10 @@ class Notification(object):
         notification = ('\x01' + identifier_bin + expiry_bin + token_length_bin + token_bin
             + payload_length_bin + payload_json)
 
-        return notification        
+        return notification
+        
+    def __repr__(self):
+        return '<%s to %s id:%d>' % (repr(self.payload), self.token_hex, self.identifier)
 
 class GatewayConnection(APNsConnection):
     """
@@ -339,12 +342,14 @@ class GatewayConnection(APNsConnection):
         self.port = 2195
         self.next_identifier = 0
         self.failed_notifications = []
-        self.in_flight_notifications = collections.deque()
+        self.in_flight_notifications = []
         
     def __del__(self):
-        self._check_for_errors(timeout=1)
+        while self._check_for_errors(timeout=1):
+            pass
 
     def _check_for_errors(self, timeout=0):
+        resended_notifications = False
         try:
             error_response = self.read(6, timeout=timeout)
             if error_response != '':
@@ -369,9 +374,43 @@ class GatewayConnection(APNsConnection):
                     7: 'Invalid payload size',
                     8: 'Invalid token'}.get(status, 'Unknown Error')
                 print 'There was an error for identifier ' + str(identifier) + ': ' + response
+                
+                in_flight = self.in_flight_notifications
+                self.in_flight_notifications = []
+                
+                needs_resending = []
+                
+                # Check for all previously sent notifications if they arrived or not
+                for notification in in_flight:
+                    if notification.identifier < identifier:
+                        # This notification was *before* the problematic notification,
+                        # we can assume it was sent successfully and don't have to do anything with it anymore
+                        print notification, 'passed without problems'
+                        pass
+                    elif notification.identifier == identifier:
+                        # This was the notification that tripped us up, save it to a list of failed notifications
+                        # So that the API user can process them somehow
+                        self.failed_notifications.append(notification)
+                        print notification, 'tripped us up'
+                    else:
+                        # This notification was sent *after* the problematic notification
+                        # We can assume that
+                        print notification, 'will be resent'
+                        needs_resending.append(notification)
+                
+                # 
+                self.in_flight_notifications = []
+                
+                for notification in needs_resending:
+                    self.send(notification)
+                    resended_notifications = True
+                
+                        
         except (SSLError, timeout), ex:
              # SSL throws SSLError instead of timeout, see http://bugs.python.org/issue10272
             pass # Timeouts are OK - don't reconnect
+            
+        return resended_notifications
 
     def send_notification(self, token_hex, payload, expiry=None):
         self.send(Notification(token_hex, payload, expiry))
@@ -383,6 +422,7 @@ class GatewayConnection(APNsConnection):
 
         try: # Connection might have been closed
             self.write(notification.get_binary())
+            self.in_flight_notifications.append(notification)
             print 'Sent', notification.identifier
         except:
             # Prepare to reconnect.
