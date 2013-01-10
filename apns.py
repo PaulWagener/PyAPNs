@@ -29,7 +29,7 @@ from time import mktime
 from socket import socket, AF_INET, SOCK_STREAM, timeout
 from struct import pack, unpack
 
-import os
+import os, string
 
 try:
     from ssl import wrap_socket
@@ -300,7 +300,10 @@ class InvalidTokenError(APNResponseError):
         super(InvalidTokenError, self).__init__()
 
 class Notification(object):
-    def __init__(self, token_hex, payload, identifier, expiry=None):
+    def __init__(self, token_hex, payload, identifier=0, expiry=None):
+        assert all(c in string.hexdigits for c in token_hex) 
+        assert len(token_hex) == 64
+
         self.token_hex = token_hex
         self.payload = payload
         self.identifier = identifier
@@ -343,10 +346,13 @@ class GatewayConnection(APNsConnection):
         self.next_identifier = 0
         self.failed_notifications = []
         self.in_flight_notifications = []
-        
-    def __del__(self):
+
+    def flush(self):
         while self._check_for_errors(timeout=1):
             pass
+            
+        # If APNs has no error codes left to tell us, we can assume that all in-flight notifications have arrived
+        self.in_flight_notifications = []
 
     def _check_for_errors(self, timeout=0):
         resended_notifications = False
@@ -363,40 +369,44 @@ class GatewayConnection(APNsConnection):
                 if status > 0:
                     self._disconnect() # Make sure we're ready for next send.
 
-                response = {
-                    0: 'No errors encountered',
-                    1: 'Processing error',
-                    2: 'Missing device token',
-                    3: 'Missing topic',
-                    4: 'Missing payload',
-                    5: 'Invalid token size',
-                    6: 'Invalid topic size',
-                    7: 'Invalid payload size',
-                    8: 'Invalid token'}.get(status, 'Unknown Error')
-                print 'There was an error for identifier ' + str(identifier) + ': ' + response
-                
+
                 in_flight = self.in_flight_notifications
                 self.in_flight_notifications = []
-                
+
                 needs_resending = []
-                
+
                 # Check for all previously sent notifications if they arrived or not
                 for notification in in_flight:
                     if notification.identifier < identifier:
-                        # This notification was *before* the problematic notification,
-                        # we can assume it was sent successfully and don't have to do anything with it anymore
-                        print notification, 'passed without problems'
+                        # This notification was *before* the problematic notification.
+                        # We can assume it was sent successfully and don't have to do anything with it anymore
                         pass
                     elif notification.identifier == identifier:
-                        # This was the notification that tripped us up, save it to a list of failed notifications
-                        # So that the API user can process them somehow
-                        self.failed_notifications.append(notification)
-                        print notification, 'tripped us up'
+                        if status > 0:
+                            # This was the notification that tripped up the APN server.
+                            # Save it to a list of failed notifications so that the API user can process them somehow
+                            response = {
+                                1: 'Processing error',
+                                2: 'Missing device token',
+                                3: 'Missing topic',
+                                4: 'Missing payload',
+                                5: 'Invalid token size',
+                                6: 'Invalid topic size',
+                                7: 'Invalid payload size',
+                                8: 'Invalid token'}.get(status, 'Unknown Error')
+
+                            notification.fail_reason = (status, response)
+
+                            self.failed_notifications.append(notification)
                     else:
                         # This notification was sent *after* the problematic notification
-                        # We can assume that
-                        print notification, 'will be resent'
-                        needs_resending.append(notification)
+                        # We can assume that it was not sent.
+                        # Unless offcourse it was not problematic at all and Apple sends an "Error" that no errors were encountered (status code 0)
+                        # In that case we still don't know the fate of the notification and have to put it back in flight
+                        if status > 0:
+                            needs_resending.append(notification)
+                        else:
+                            self.in_flight_notifications.append(notification)
                 
                 # 
                 self.in_flight_notifications = []
