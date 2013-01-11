@@ -188,14 +188,14 @@ class TestAPNs(unittest.TestCase):
     def testNotification(self):
         pem_file = TEST_CERTIFICATE
         TOKEN = '0000000000000000000000000000000000000000000000000000000000000000'
-        expiry = datetime(2000, 01, 01, 00, 00, 00)
+        expiry = datetime.fromtimestamp(mktime(time.localtime(0)))
         apns = APNs(use_sandbox=True, cert_file=pem_file, key_file=pem_file)
 
         # Test the output to APNs of a single notification
         apns._gateway_connection = MockGatewayConnection()
         apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message"), expiry=expiry))
 
-        self.assertEqual(apns.gateway_server.written, '\x01\x00\x00\x00\x008m5p\x00 \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00#{"aps":{"alert":"Success Message"}}')
+        self.assertEqual(apns.gateway_server.written, '\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00 \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00#{"aps":{"alert":"Success Message"}}')
 
         # Test that normal notifications do not fail
         apns._gateway_connection = MockGatewayConnection()
