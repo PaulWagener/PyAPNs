@@ -329,8 +329,9 @@ class GatewayConnection(APNsConnection):
         If for example a notification somewhere in the middle of your batch is corrupted (see the response dictionary below for a list of possible problems)
         it is possible that that notification AND ALL NOTIFICATIONS AFTER IT will be discarded by Apple.
         """
-        while self._check_for_errors(timeout=1):
-            pass
+        if len(self.in_flight_notifications):
+            while self._check_for_errors(timeout=1):
+                pass
 
         # If the APN server has no error codes left to tell us we can assume that all in-flight notifications have arrived
         self.in_flight_notifications = []
