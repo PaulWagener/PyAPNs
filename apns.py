@@ -231,7 +231,7 @@ class FeedbackConnection(APNsConnection):
     def _chunks(self):
         BUF_SIZE = 4096
         while 1:
-            data = self.read(BUF_SIZE)
+            data = self.read(BUF_SIZE, timeout=0.5)
             yield data
             if not data:
                 break
