@@ -26,7 +26,7 @@
 from binascii import a2b_hex, b2a_hex
 from datetime import datetime, timedelta
 from time import mktime
-from socket import socket, AF_INET, SOCK_STREAM, timeout
+from socket import socket, AF_INET, SOCK_STREAM, timeout, error
 from struct import pack, unpack
 
 import os, string
@@ -405,7 +405,7 @@ class GatewayConnection(APNsConnection):
                     self.send(notification)
                     resended_notifications = True
 
-        except (SSLError, timeout), ex:
+        except (SSLError, timeout, error), ex:
              # SSL throws SSLError instead of timeout, see http://bugs.python.org/issue10272
             pass # Timeouts are OK - don't reconnect
 
