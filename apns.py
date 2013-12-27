@@ -424,6 +424,5 @@ class GatewayConnection(APNsConnection):
         except:
             # Prepare to reconnect.
             self._disconnect()
-            raise
         else:
             self._check_for_errors()
