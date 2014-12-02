@@ -148,6 +148,7 @@ class TestAPNs(unittest.TestCase):
         self.assertTrue('alert' in d['aps'])
         self.assertTrue('sound' not in d['aps'])
         self.assertTrue('badge' not in d['aps'])
+        self.assertTrue('category' not in d['aps'])
 
         # Payload with just sound
         p = Payload(sound="foo")
@@ -177,6 +178,12 @@ class TestAPNs(unittest.TestCase):
         self.assertEqual(d['aps']['alert'], alert_str)
         self.assertTrue('sound' not in d['aps'])
         self.assertTrue('badge' not in d['aps'])
+
+        # Payload with category
+        p = Payload(alert=PayloadAlert('foo'), category='cat')
+        d = p.dict()
+        self.assertTrue('alert' in d['aps'])
+        self.assertTrue('category' in d['aps'])
 
         # Test custom payload
         alert_str = 'foobar'
