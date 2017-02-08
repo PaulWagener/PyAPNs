@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-from apns import *
+from .apns import *
 from binascii import a2b_hex
 from random import random
 from datetime import datetime
@@ -15,12 +15,12 @@ TEST_CERTIFICATE = "certificate.pem" # replace with path to test certificate
 NUM_MOCK_TOKENS = 10
 mock_tokens = []
 for i in range(0, NUM_MOCK_TOKENS):
-    mock_tokens.append(hashlib.sha256("%.12f" % random()).hexdigest())
+    mock_tokens.append(str.encode(hashlib.sha256(str.encode("%.12f" % random())).hexdigest()))
 
 def mock_chunks_generator():
     BUF_SIZE = 64
     # Create fake data feed
-    data = ''
+    data = b''
 
     for t in mock_tokens:
         token_bin       = a2b_hex(t)
@@ -35,12 +35,12 @@ def mock_chunks_generator():
         data = data[BUF_SIZE:]
 
 class MockGatewayConnection(GatewayConnection):
-    return_on_read = ''
-    written = ''
+    return_on_read = b''
+    written = b''
 
     def read(self, n=None, timeout=0):
         r = self.return_on_read
-        self.return_on_read = ''
+        self.return_on_read = b''
         return r
 
     def write(self, string):
@@ -90,7 +90,7 @@ class TestAPNs(unittest.TestCase):
             badge = 4
         )
         identifier = 0
-        expiry = datetime(2000, 01, 01, 00, 00, 00)
+        expiry = datetime(2000, 0o1, 0o1, 00, 00, 00)
         notification = Notification(token_hex, payload, identifier, expiry).get_binary()
 
         expected_length = (
@@ -104,7 +104,7 @@ class TestAPNs(unittest.TestCase):
         )
 
         self.assertEqual(len(notification), expected_length)
-        self.assertEqual(notification[0], '\x01') # Enhanced format command byte
+        self.assertEqual(notification[0], 1) # Enhanced format command byte
 
     def testFeedbackServer(self):
         pem_file = TEST_CERTIFICATE
@@ -118,7 +118,7 @@ class TestAPNs(unittest.TestCase):
         feedback_server._chunks = mock_chunks_generator
 
         i = 0;
-        for (token_hex, fail_time) in feedback_server.items():
+        for (token_hex, fail_time) in list(feedback_server.items()):
             self.assertEqual(token_hex, mock_tokens[i])
             i += 1
         self.assertEqual(i, NUM_MOCK_TOKENS)
@@ -200,9 +200,9 @@ class TestAPNs(unittest.TestCase):
 
         # Test the output to APNs of a single notification
         apns._gateway_connection = MockGatewayConnection()
-        apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message"), expiry=expiry))
+        apns.gateway_server.send(Notification(TOKEN, Payload(alert="Success Message"), expiry=expiry))
 
-        self.assertEqual(apns.gateway_server.written, '\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00 \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00#{"aps":{"alert":"Success Message"}}')
+        self.assertEqual(apns.gateway_server.written, b'\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00 \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00#{"aps":{"alert":"Success Message"}}')
 
         # Test that normal notifications do not fail
         apns._gateway_connection = MockGatewayConnection()
@@ -210,9 +210,9 @@ class TestAPNs(unittest.TestCase):
         self.assertEqual(len(apns.gateway_server.in_flight_notifications), 0)
         self.assertEqual(len(apns.gateway_server.failed_notifications), 0)
 
-        apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
-        apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
-        apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
+        apns.gateway_server.send(Notification(TOKEN, Payload(alert="Success Message")))
+        apns.gateway_server.send(Notification(TOKEN, Payload(alert="Success Message")))
+        apns.gateway_server.send(Notification(TOKEN, Payload(alert="Success Message")))
 
         self.assertEqual(len(apns.gateway_server.in_flight_notifications), 3)
         self.assertEqual(len(apns.gateway_server.failed_notifications), 0)
@@ -225,25 +225,25 @@ class TestAPNs(unittest.TestCase):
         # Send three notifications, where one will fail
         apns._gateway_connection = MockGatewayConnection()
 
-        apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Fail Message")))
-        apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
-        apns.gateway_server.return_on_read = '\x08\x08\x00\x00\x00\x00' # Simulate that identifier 0 was an invalid token
-        apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
+        apns.gateway_server.send(Notification(TOKEN, Payload(alert="Fail Message")))
+        apns.gateway_server.send(Notification(TOKEN, Payload(alert="Success Message")))
+        apns.gateway_server.return_on_read = b'\x08\x08\x00\x00\x00\x00' # Simulate that identifier 0 was an invalid token
+        apns.gateway_server.send(Notification(TOKEN, Payload(alert="Success Message")))
 
         self.assertEqual(len(apns.gateway_server.failed_notifications), 1)
 
         failed_notification = apns.gateway_server.failed_notifications[0]
-        self.assertEqual(failed_notification.payload.alert, u"Fail Message")
+        self.assertEqual(failed_notification.payload.alert, "Fail Message")
         self.assertEqual(failed_notification.fail_reason, (8, 'Invalid token'))
 
         # Send three notifications. Where none fail, but APNs returns a 'No error encountered' message
         apns._gateway_connection = MockGatewayConnection()
 
-        apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
-        apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
-        apns.gateway_server.send(Notification(TOKEN, Payload(alert=u"Success Message")))
+        apns.gateway_server.send(Notification(TOKEN, Payload(alert="Success Message")))
+        apns.gateway_server.send(Notification(TOKEN, Payload(alert="Success Message")))
+        apns.gateway_server.send(Notification(TOKEN, Payload(alert="Success Message")))
 
-        apns.gateway_server.return_on_read = '\x08\x00\x00\x00\x00\x01' # Simulate that identifier 1 did not encounter an error
+        apns.gateway_server.return_on_read = b'\x08\x00\x00\x00\x00\x01' # Simulate that identifier 1 did not encounter an error
         apns.gateway_server.flush()
 
         self.assertEqual(len(apns.gateway_server.failed_notifications), 0)
@@ -261,9 +261,9 @@ class TestAPNs(unittest.TestCase):
             '.' * (max_raw_payload_bytes + 1))
 
         # Test unicode 2-byte characters payload
-        Payload(u'\u0100' * int(max_raw_payload_bytes / 2))
+        Payload('\u0100' * int(max_raw_payload_bytes / 2))
         self.assertRaises(PayloadTooLargeError, Payload,
-            u'\u0100' * (int(max_raw_payload_bytes / 2) + 1))
+            '\u0100' * (int(max_raw_payload_bytes / 2) + 1))
 
 if __name__ == '__main__':
     unittest.main()

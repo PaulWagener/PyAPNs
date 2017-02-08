@@ -244,7 +244,7 @@ class FeedbackConnection(APNsConnection):
         A generator that yields (token_hex, fail_time) pairs retrieved from
         the APNs feedback server
         """
-        buff = ''
+        buff = b''
         for chunk in self._chunks():
             buff += chunk
 
@@ -300,7 +300,7 @@ class Notification(object):
         payload_json = self.payload.json()
         payload_length_bin = APNs.packed_ushort_big_endian(len(payload_json))
 
-        notification = ('\x01' + identifier_bin + expiry_bin + token_length_bin + token_bin
+        notification = (b'\x01' + identifier_bin + expiry_bin + token_length_bin + token_bin
             + payload_length_bin + payload_json)
 
         return notification
@@ -352,12 +352,13 @@ class GatewayConnection(APNsConnection):
         resended_notifications = False
         try:
             error_response = self.read(6, timeout=timeout)
-            if error_response != '':
+            if error_response != b'':
                 command = error_response[0]
-                status = ord(error_response[1])
+                status = error_response[1]
+
                 identifier, = unpack('>I', error_response[2:6])
 
-                if command != '\x08':
+                if command != 8:
                     raise UnknownResponse()
 
                 if status > 0:
@@ -408,7 +409,7 @@ class GatewayConnection(APNsConnection):
                     self.send(notification)
                     resended_notifications = True
 
-        except (SSLError, timeout, error), ex:
+        except (SSLError, timeout, error) as ex:
              # SSL throws SSLError instead of timeout, see http://bugs.python.org/issue10272
             pass # Timeouts are OK - don't reconnect
 
